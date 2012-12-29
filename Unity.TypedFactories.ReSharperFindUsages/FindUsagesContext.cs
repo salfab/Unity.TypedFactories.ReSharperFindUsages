@@ -70,7 +70,7 @@ namespace Unity.TypedFactories.ReSharperFindUsages
 
                     // Find all the calls to IxxxFactory.Create() 
                     ICollection<IDeclaredElement> createMethods = ((Interface)creatingFactory.GetScalarType().Resolve().DeclaredElement).Methods.Where(
-                            o => typeDeclaration.SuperTypes.Contains(o.ReturnType.GetScalarType()) /* TODO: if the type of the returned object is not the direct parent, then it won't work  - Alternative :  o.ShortName == "Create"*/)
+                            o => typeDeclaration.DeclaredElement.IsDescendantOf(o.ReturnType.GetScalarType().GetTypeElement())/*SuperTypes.Contains(o.ReturnType.GetScalarType()))  TODO: if the type of the returned object is not the direct parent, then it won't work  - Alternative :  o.ShortName == "Create"*/)
                                                                                               .Select(
                                                                                                   o =>
                                                                                                   o.GetDeclarations()
