@@ -1,4 +1,4 @@
 Unity.TypedFactories.ReSharperFindUsages
 ========================================
 
-Helps finding usages of the classes created via Unity.TypedFactories
+Adds support for the Find Usages (ALT+F7) feature of ReSharper for classes instantiated by Unity.TypedFactories
