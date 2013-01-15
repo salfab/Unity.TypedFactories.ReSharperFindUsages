@@ -53,40 +53,47 @@ namespace Unity.TypedFactories.ReSharperFindUsages
 
         protected ICollection<IDeclaredElement> GetAdditionalElementsToSearch(IDataContext context)
         {
-            var typeDeclaration = context.GetSelectedTreeNode<ICSharpTypeDeclaration>();
+            var constructorDeclaration = context.GetSelectedTreeNode<IConstructorDeclaration>();
 
-            if (typeDeclaration != null)
+            if (constructorDeclaration != null)
             {
-                ISearchDomain searchDomain = SearchDomainFactory.Instance.CreateSearchDomain(typeDeclaration.GetPsiModule().GetSolution(), false);
-                var references = typeDeclaration.GetPsiServices()
-                                                .Finder.FindReferences(
-                                                    typeDeclaration.DeclaredElement,
-                                                    searchDomain,
-                                                    NullProgressIndicator.Instance);
-                var referenceExpression = references.Select(o => o.GetTreeNode().GetContainingNode<IReferenceExpression>()).SingleOrDefault(o => o != null);
-                if (referenceExpression != null)
+                var typeDeclaration = constructorDeclaration.GetContainingTypeDeclaration();
+
+                if (typeDeclaration != null)
                 {
-                    var creatingFactory = ((IReferenceExpression)referenceExpression.FirstChild.FirstChild).TypeArgumentList.TypeArguments[0];
+                    ISearchDomain searchDomain =
+                        SearchDomainFactory.Instance.CreateSearchDomain(
+                            typeDeclaration.GetPsiModule().GetSolution(), false);
+                    var references =
+                        typeDeclaration.GetPsiServices()
+                                       .Finder.FindReferences(
+                                           typeDeclaration.DeclaredElement, searchDomain, NullProgressIndicator.Instance);
 
-                    // Find all the calls to IxxxFactory.Create() 
-                    ICollection<IDeclaredElement> createMethods = ((Interface)creatingFactory.GetScalarType().Resolve().DeclaredElement).Methods.Where(
-                            o => typeDeclaration.DeclaredElement.IsDescendantOf(o.ReturnType.GetScalarType().GetTypeElement())/*SuperTypes.Contains(o.ReturnType.GetScalarType()))  TODO: if the type of the returned object is not the direct parent, then it won't work  - Alternative :  o.ShortName == "Create"*/)
-                                                                                              .Select(
-                                                                                                  o =>
-                                                                                                  o.GetDeclarations()
-                                                                                                   .First()
-                                                                                                   .DeclaredElement)
-                                                                                              .ToList();
+                    var referenceExpression =
+                        references.Select(o => o.GetTreeNode().GetContainingNode<IReferenceExpression>())
+                                  .Single(o => o != null);
 
-                    return createMethods;
-                    //var referencesToCreate = creatingFactory.GetPsiServices()
-                    //                                        .Finder.FindReferences(
-                    //                                            createMethods, searchDomain, NullProgressIndicator.Instance);
+                    if (referenceExpression != null)
+                    {
+                        var creatingFactory =
+                            ((IReferenceExpression)referenceExpression.FirstChild.FirstChild).TypeArgumentList
+                                                                                             .TypeArguments[0];
 
-                    //foreach (var reference in referencesToCreate)
-                    //{
-                    //    declaredElements.Add(referencesToCreate.First().Resolve().DeclaredElement);
-                    //}
+                        // Find all the calls to IxxxFactory.Create() 
+                        ICollection<IDeclaredElement> createMethods =
+                            ((Interface)creatingFactory.GetScalarType().Resolve().DeclaredElement).Methods.Where(
+                                o =>
+                                typeDeclaration.DeclaredElement.IsDescendantOf(
+                                    o.ReturnType.GetScalarType().GetTypeElement()) /*SuperTypes.Contains(o.ReturnType.GetScalarType()))  TODO: if the type of the returned object is not the direct parent, then it won't work  - Alternative :  o.ShortName == "Create"*/)
+                                                                                                  .Select( o => o.GetDeclarations()
+                                                                                                      .First()
+                                                                                                      .DeclaredElement)
+                                                                                                  .ToList();
+                        if (createMethods.Any())
+                        {
+                            return createMethods;
+                        }          
+                    }
                 }
             }
             return new IDeclaredElement[0];
