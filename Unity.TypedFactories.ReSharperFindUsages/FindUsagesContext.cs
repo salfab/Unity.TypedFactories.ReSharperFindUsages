@@ -63,7 +63,7 @@ namespace Unity.TypedFactories.ReSharperFindUsages
                                                     typeDeclaration.DeclaredElement,
                                                     searchDomain,
                                                     NullProgressIndicator.Instance);
-                var referenceExpression = references[0].GetTreeNode().GetContainingNode<IReferenceExpression>();
+                var referenceExpression = references.Select(o => o.GetTreeNode().GetContainingNode<IReferenceExpression>()).SingleOrDefault(o => o != null);
                 if (referenceExpression != null)
                 {
                     var creatingFactory = ((IReferenceExpression)referenceExpression.FirstChild.FirstChild).TypeArgumentList.TypeArguments[0];
