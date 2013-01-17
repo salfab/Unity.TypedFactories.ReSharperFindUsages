@@ -11,6 +11,7 @@ namespace Unity.TypedFactories.ReSharperFindUsages
     using System.Linq;
 
     using JetBrains.Application.Progress;
+    using JetBrains.DataFlow;
     using JetBrains.ReSharper.Daemon;
     using JetBrains.ReSharper.Feature.Services.ContextNavigation.ContextSearches;
     using JetBrains.ReSharper.Feature.Services.ContextNavigation.ContextSearches.BaseSearches;
@@ -21,6 +22,7 @@ namespace Unity.TypedFactories.ReSharperFindUsages
     using JetBrains.ReSharper.Feature.Services.ContextNavigation.Util;
     using JetBrains.ReSharper.Psi.CSharp.Tree;
     using JetBrains.ReSharper.Psi.ExtensionsAPI.Caches2;
+    using JetBrains.ReSharper.Psi.Impl;
     using JetBrains.ReSharper.Psi.Impl.Resolve;
     using JetBrains.ReSharper.Psi.Search;
     using JetBrains.ReSharper.Refactorings.ClassFromParameters.Util;
@@ -82,28 +84,62 @@ namespace Unity.TypedFactories.ReSharperFindUsages
 
                         // Find all the calls to IxxxFactory.Create() 
                         var factoryInterface = ((Interface)creatingFactory.GetScalarType().Resolve().DeclaredElement);
+
+                        Func<IDeclaredType, IList<IDeclaredType>> recursionForFindingAllSuperTypes = null;
+                        recursionForFindingAllSuperTypes = type =>
+                            {
+                                var ancestorDirectSuperTypes = new List<IDeclaredType>();
+                                foreach (var ancestor in type.GetSuperTypes())
+                                {
+                                    IEnumerable<IDeclaredType> superTypes = recursionForFindingAllSuperTypes(ancestor);
+
+                                    ancestorDirectSuperTypes.AddRange(superTypes);
+                                }
+                                return ancestorDirectSuperTypes;
+                            };
+
+                        var allSuperclasses = new List<IDeclaredType>();
+
+                        var directSuperTypes = factoryInterface.GetSuperTypes();
+                        allSuperclasses.AddRange(directSuperTypes);
+
+                        foreach (var ancestor in directSuperTypes)
+                        {
+                            IEnumerable<IDeclaredType> superTypes = recursionForFindingAllSuperTypes(ancestor);
+
+                            allSuperclasses.AddRange(superTypes);
+                        }
+
+                        IEnumerable<IMethod> allMethods = allSuperclasses
+                            .Where(o => o.GetClrName().FullName != typeof(Object).FullName)
+                            .Select(o =>  o.GetScalarType().GetTypeElement())
+                            .SelectMany(o => o.Methods)
+                            .Concat(factoryInterface.Methods);
+
                         // FIXME : we are only handling the methods of the interface, not the inherited methods !
                         var createMethodsForReference =
-                            factoryInterface.Methods.Where(
+                            allMethods.Where(
                                 o =>
-                                    {
-                                        var substitution = creatingFactory.GetScalarType().GetSubstitution();
-                                        var isFactoryGeneric = substitution.Domain.Any();
+                                    {                                        
+                                        // FIXME : Limitation : as of now, we don't support having multiple generic parents : sorry.
+                                        var substitutions = allSuperclasses.Select(x => x.GetSubstitution()).Where(s => s.Domain.Count > 0);
+                                        //var singleSubstitution = substitutions.SingleOrDefault();
+                                        var hasGenericSuperType = substitutions.Any();
 
                                         // todo : we still have to make sure we only keep the typeParameters which are compatible with the selected .ctor.
                                         //var typeParameters = substitution.Domain.Select(typeParameter => substitution[typeParameter]).Where(x => x.IsImplicitlyConvertibleTo(selectedTypeDeclaration.));                                        
-                                        IEnumerable<IType> typeParameters = substitution.Domain.Select(typeParameter => substitution[typeParameter]).Where(x => x != null);                                        
+                                        IEnumerable<IType> typeParameters = substitutions.SelectMany(x => x.Domain, (singleSubstitution, typeParameter) => singleSubstitution[typeParameter]).Where(x => x != null);                                        
                                         /* SuperTypes.Contains(o.ReturnType.GetScalarType()))  TODO: if the type of the returned object is not the direct parent, then it won't work  - Alternative :  o.ShortName == "Create"*/
                                         var typeReturnedByMethodOfFactory = o.ReturnType.GetScalarType().GetTypeElement();
                                         var isDescendant = selectedTypeDeclaration.DeclaredElement.IsDescendantOf(typeReturnedByMethodOfFactory);
-                                        if (isFactoryGeneric)
+                                        if (hasGenericSuperType)
                                         {
-                                            // if it is not a direct descendant, maybe we have a generic factory interface : let's check if one of the type arguments do match the output value of a method.
+                                            // if we have a generic factory interface : let's check if one of the type arguments do match the output value of a method.
                                             isDescendant = selectedTypeDeclaration.SuperTypes.Cast<IType>().Union(typeParameters).Any();
                                         }
                                         return isDescendant;
                                     })
-                                    .Select(o => o.GetDeclarations().First().DeclaredElement);                        
+                                    .SelectMany(o => o.GetDeclarations(), (method, declaration) => declaration.DeclaredElement);                        
                             createMethods.AddRange(createMethodsForReference);                                              
                     }
                     return createMethods;
