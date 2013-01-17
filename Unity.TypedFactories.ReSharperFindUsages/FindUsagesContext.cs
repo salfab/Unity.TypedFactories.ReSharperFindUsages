@@ -82,6 +82,7 @@ namespace Unity.TypedFactories.ReSharperFindUsages
 
                         // Find all the calls to IxxxFactory.Create() 
                         var factoryInterface = ((Interface)creatingFactory.GetScalarType().Resolve().DeclaredElement);
+                        // FIXME : we are only handling the methods of the interface, not the inherited methods !
                         var createMethodsForReference =
                             factoryInterface.Methods.Where(
                                 o =>
