@@ -25,6 +25,7 @@ namespace Unity.TypedFactories.ReSharperFindUsages
     using JetBrains.ReSharper.Psi.Impl;
     using JetBrains.ReSharper.Psi.Impl.Resolve;
     using JetBrains.ReSharper.Psi.Search;
+    using JetBrains.ReSharper.Psi.Util;
     using JetBrains.ReSharper.Refactorings.ClassFromParameters.Util;
     using JetBrains.Util;
 
@@ -83,7 +84,8 @@ namespace Unity.TypedFactories.ReSharperFindUsages
                             .TypeArguments[0];
 
                         // Find all the calls to IxxxFactory.Create() 
-                        var factoryInterface = ((Interface)creatingFactory.GetScalarType().Resolve().DeclaredElement);
+                        var factoryInterface = ((Interface)creatingFactory.GetScalarType().Resolve().DeclaredElement);                                   
+
 
                         Func<IDeclaredType, IList<IDeclaredType>> recursionForFindingAllSuperTypes = null;
                         recursionForFindingAllSuperTypes = type =>
@@ -98,17 +100,7 @@ namespace Unity.TypedFactories.ReSharperFindUsages
                                 return ancestorDirectSuperTypes;
                             };
 
-                        var allSuperclasses = new List<IDeclaredType>();
-
-                        var directSuperTypes = factoryInterface.GetSuperTypes();
-                        allSuperclasses.AddRange(directSuperTypes);
-
-                        foreach (var ancestor in directSuperTypes)
-                        {
-                            IEnumerable<IDeclaredType> superTypes = recursionForFindingAllSuperTypes(ancestor);
-
-                            allSuperclasses.AddRange(superTypes);
-                        }
+                        var allSuperclasses = factoryInterface.GetAllSuperTypes();                       
 
                         IEnumerable<IMethod> allMethods = allSuperclasses
                             .Where(o => o.GetClrName().FullName != typeof(Object).FullName)
@@ -121,21 +113,22 @@ namespace Unity.TypedFactories.ReSharperFindUsages
                             allMethods.Where(
                                 o =>
                                     {                                        
-                                        // FIXME : Limitation : as of now, we don't support having multiple generic parents : sorry.
-                                        var substitutions = allSuperclasses.Select(x => x.GetSubstitution()).Where(s => s.Domain.Count > 0);
-                                        //var singleSubstitution = substitutions.SingleOrDefault();
+                                        var substitutions = allSuperclasses
+                                            .Select(x => x.GetSubstitution())
+                                            .Where(s => s.Domain.Count > 0);
+
                                         var hasGenericSuperType = substitutions.Any();
 
                                         // todo : we still have to make sure we only keep the typeParameters which are compatible with the selected .ctor.
-                                        //var typeParameters = substitution.Domain.Select(typeParameter => substitution[typeParameter]).Where(x => x.IsImplicitlyConvertibleTo(selectedTypeDeclaration.));                                        
-                                        IEnumerable<IType> typeParameters = substitutions.SelectMany(x => x.Domain, (singleSubstitution, typeParameter) => singleSubstitution[typeParameter]).Where(x => x != null);                                        
-                                        /* SuperTypes.Contains(o.ReturnType.GetScalarType()))  TODO: if the type of the returned object is not the direct parent, then it won't work  - Alternative :  o.ShortName == "Create"*/
+                                        IEnumerable<IType> typeParameters = substitutions
+                                            .SelectMany(x => x.Domain, (singleSubstitution, typeParameter) => singleSubstitution[typeParameter])
+                                            .Where(x => x != null);                                                                                
                                         var typeReturnedByMethodOfFactory = o.ReturnType.GetScalarType().GetTypeElement();
                                         var isDescendant = selectedTypeDeclaration.DeclaredElement.IsDescendantOf(typeReturnedByMethodOfFactory);
                                         if (hasGenericSuperType)
                                         {
-                                            // if we have a generic factory interface : let's check if one of the type arguments do match the output value of a method.
-                                            isDescendant = selectedTypeDeclaration.SuperTypes.Cast<IType>().Union(typeParameters).Any();
+                                            // if we have a generic factory interface : let's check if one of the type arguments do match the output value of a method.                                            
+                                            isDescendant = selectedTypeDeclaration.DeclaredElement.GetAllSuperTypes().Union(typeParameters).Any();                                            
                                         }
                                         return isDescendant;
                                     })
