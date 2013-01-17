@@ -3,6 +3,8 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Unity.TypedFactories.ReSharperFindUsages", "Unity.TypedFactories.ReSharperFindUsages\Unity.TypedFactories.ReSharperFindUsages.csproj", "{769224B5-A474-442D-91CC-F93D7D6F94E9}"
 EndProject
+Project("{930C7802-8A8C-48F9-8165-68863BCCD9DD}") = "WixSetup", "WixSetup\WixSetup.wixproj", "{960FCEDE-E3C3-4A91-923B-4AC866321400}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

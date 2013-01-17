@@ -21,6 +21,7 @@ namespace Unity.TypedFactories.ReSharperFindUsages
     using JetBrains.ReSharper.Feature.Services.ContextNavigation.Util;
     using JetBrains.ReSharper.Psi.CSharp.Tree;
     using JetBrains.ReSharper.Psi.ExtensionsAPI.Caches2;
+    using JetBrains.ReSharper.Psi.Impl.Resolve;
     using JetBrains.ReSharper.Psi.Search;
     using JetBrains.Util;
 
@@ -48,52 +49,61 @@ namespace Unity.TypedFactories.ReSharperFindUsages
 
             var searchUsagesRequest = (SearchUsagesRequest)new SearchDeclaredElementUsagesRequest(elementsToSearch, SearchPattern, searchDomain, declaredElements);
             return searchUsagesRequest;
-
         }     
 
         protected ICollection<IDeclaredElement> GetAdditionalElementsToSearch(IDataContext context)
         {
-            var constructorDeclaration = context.GetSelectedTreeNode<IConstructorDeclaration>();
+            var selectedConstructorDeclaration = context.GetSelectedTreeNode<IConstructorDeclaration>();
 
-            if (constructorDeclaration != null)
+            if (selectedConstructorDeclaration != null)
             {
-                var typeDeclaration = constructorDeclaration.GetContainingTypeDeclaration();
+                var selectedTypeDeclaration = selectedConstructorDeclaration.GetContainingTypeDeclaration();
 
-                if (typeDeclaration != null)
+                if (selectedTypeDeclaration != null)
                 {
-                    ISearchDomain searchDomain =
-                        SearchDomainFactory.Instance.CreateSearchDomain(
-                            typeDeclaration.GetPsiModule().GetSolution(), false);
-                    var references =
-                        typeDeclaration.GetPsiServices()
-                                       .Finder.FindReferences(
-                                           typeDeclaration.DeclaredElement, searchDomain, NullProgressIndicator.Instance);
+                    ISearchDomain searchDomain = SearchDomainFactory.Instance.CreateSearchDomain(selectedTypeDeclaration.GetPsiModule().GetSolution(), false);
+                    var referencesToSelectedType = selectedTypeDeclaration
+                        .GetPsiServices()
+                        .Finder
+                        .FindReferences(selectedTypeDeclaration.DeclaredElement, searchDomain, NullProgressIndicator.Instance);
+                    
+                    var referencesToSelectedTypeExpressions = referencesToSelectedType
+                        .Select(o => o.GetTreeNode().GetContainingNode<IReferenceExpression>())
+                        .Where(o => o != null);
 
-                    var referenceExpression =
-                        references.Select(o => o.GetTreeNode().GetContainingNode<IReferenceExpression>())
-                                  .Single(o => o != null);
+                    var createMethods = new Collection<IDeclaredElement>();
 
-                    if (referenceExpression != null)
+                    foreach (var referenceExpression in referencesToSelectedTypeExpressions)
                     {
-                        var creatingFactory =
-                            ((IReferenceExpression)referenceExpression.FirstChild.FirstChild).TypeArgumentList
-                                                                                             .TypeArguments[0];
+                        var creatingFactory = ((IReferenceExpression)referenceExpression.FirstChild.FirstChild)
+                            .TypeArgumentList
+                            .TypeArguments[0];
 
                         // Find all the calls to IxxxFactory.Create() 
-                        ICollection<IDeclaredElement> createMethods =
-                            ((Interface)creatingFactory.GetScalarType().Resolve().DeclaredElement).Methods.Where(
+                        var factoryInterface = ((Interface)creatingFactory.GetScalarType().Resolve().DeclaredElement);
+                        var createMethodsForReference =
+                            factoryInterface.Methods.Where(
                                 o =>
-                                typeDeclaration.DeclaredElement.IsDescendantOf(
-                                    o.ReturnType.GetScalarType().GetTypeElement()) /*SuperTypes.Contains(o.ReturnType.GetScalarType()))  TODO: if the type of the returned object is not the direct parent, then it won't work  - Alternative :  o.ShortName == "Create"*/)
-                                                                                                  .Select( o => o.GetDeclarations()
-                                                                                                      .First()
-                                                                                                      .DeclaredElement)
-                                                                                                  .ToList();
-                        if (createMethods.Any())
-                        {
-                            return createMethods;
-                        }          
+                                    {
+                                        SubstitutionImpl substitution = (SubstitutionImpl)creatingFactory.GetScalarType().GetSubstitution();
+
+                                        // todo : we still have to make sure we only keep the typeParameters which are compatible with the selected .ctor.
+                                        //var typeParameters = substitution.Domain.Select(typeParameter => substitution[typeParameter]).Where(x => x.IsImplicitlyConvertibleTo(selectedTypeDeclaration.));                                        
+                                        IEnumerable<IType> typeParameters = substitution.Domain.Select(typeParameter => substitution[typeParameter]).Where(x => x != null);                                        
+                                        /* SuperTypes.Contains(o.ReturnType.GetScalarType()))  TODO: if the type of the returned object is not the direct parent, then it won't work  - Alternative :  o.ShortName == "Create"*/
+                                        var typeReturnedByMethodOfFactory = o.ReturnType.GetScalarType().GetTypeElement();
+                                        var isDescendant = selectedTypeDeclaration.DeclaredElement.IsDescendantOf(typeReturnedByMethodOfFactory);
+                                        if (!isDescendant)
+                                        {
+                                            // if it is not a direct descendant, maybe we have a generic factory interface : let's check if one of the type arguments do match the output value of a method.
+                                            isDescendant = selectedTypeDeclaration.SuperTypes.Cast<IType>().Union(typeParameters).Any();
+                                        }
+                                        return isDescendant;
+                                    })
+                                    .Select(o => o.GetDeclarations().First().DeclaredElement);                        
+                            createMethods.AddRange(createMethodsForReference);                                              
                     }
+                    return createMethods;
                 }
             }
             return new IDeclaredElement[0];
